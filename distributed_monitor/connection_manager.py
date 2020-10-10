@@ -92,8 +92,7 @@ class ConnectionManager:
     def request(self, mutex_id: str) -> float:
         # broacast request
         request = Message(mutex_id, MessageType.Request, self.address)
-        logger.info(f'peer {self.id} requesting lock '
-                    f'ts:{request.timestamp}')
+        logger.info(f'peer {self.id} requesting lock')
         for peer in self.peers:
             self.send_socket.connect(peer)
             self.send_socket.send_json(Message.to_dict(request))
@@ -122,7 +121,6 @@ class ConnectionManager:
 
     def _receive(self):
         # handle messages
-        logger.info(f'peer {self.id} binds to {self.bind_address}')
         self.recv_socket.bind(self.bind_address)
         while True:
             msg_data = self.recv_socket.recv_json()
@@ -131,35 +129,35 @@ class ConnectionManager:
                 f'peer {self.id} received: type:{message.msg_type} '
                 f'from:{message.address[-1]} {message.timestamp}'
             )
+
             # reply message
             if message.msg_type == MessageType.Reply:
                 self.mutexes[message.mutex_id].reply_counter += 1
                 logger.debug(
                     f'peer {self.id} mutex:{message.mutex_id} replies:'
-                    f'{self.mutexes[message.mutex_id].reply_counter}')
+                    f'{self.mutexes[message.mutex_id].reply_counter}'
+                )
                 if (self.mutexes[message.mutex_id].reply_counter
                         == len(self.peers)):
                     # allow locking local mutex
-                    logger.debug(
-                        f'peer {self.id} received {len(self.peers)} replies'
-                    )
                     self.mutexes[message.mutex_id].lock_event.set()
+
             # request message
             elif message.msg_type == MessageType.Request:
                 self.mutexes[message.mutex_id].guard.acquire()
+
+                # Ricart-Agrawala algorithm
                 if not self.mutexes[message.mutex_id].requesting and \
                         not self.mutexes[message.mutex_id].lock_event.is_set():
-                    # send reply
+                    # not requesting and not in critical section
                     self.reply(message.mutex_id, message.address)
                 elif self.mutexes[message.mutex_id].requesting and \
                     self.mutexes[message.mutex_id].req_timestamp \
                         > message.timestamp:
-                    logger.debug(
-                        f'p{self.id} timestamp diff: '
-                        f'{self.mutexes[message.mutex_id].req_timestamp}>'
-                        f'{message.timestamp}')
+                    # requesting but later than received request
                     self.reply(message.mutex_id, message.address)
                 else:
+                    # defer replies
                     logger.debug(
                         f'peer {self.id} queue p{message.address[-1]} r:'
                         f'{self.mutexes[message.mutex_id].requesting} cs:'
@@ -168,12 +166,15 @@ class ConnectionManager:
                         f' {message.timestamp}')
                     self.mutexes[message.mutex_id].request_queue \
                         .append(message.address)
+
                 self.mutexes[message.mutex_id].guard.release()
+
             # update message
             elif message.msg_type == MessageType.Update:
                 self.mutexes[message.mutex_id].sync_obj = \
                     self.mutexes[message.mutex_id].sync_obj \
                         .from_dict(message.obj)
+
             # notification message
             elif message.msg_type == MessageType.Notify:
                 event = self.waiters.pop(message.mutex_id, None)

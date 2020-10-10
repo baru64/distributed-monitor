@@ -46,9 +46,6 @@ class Monitor:
 
     def lock(self):
         self.guard.acquire()
-        # send request
-        # wait for replies (sem)
-        # logger.debug('requesting lock')
         self.reply_counter = 0
         self.requesting = True
         self.req_timestamp = self.conn.request(self.id)
@@ -59,7 +56,6 @@ class Monitor:
 
     def unlock(self):
         self.guard.acquire()
-        # reply for first queued request
         logger.debug('releasing lock')
         self.lock_event.clear()
         while True:

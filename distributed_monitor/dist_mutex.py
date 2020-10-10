@@ -22,9 +22,6 @@ class DistMutex:
 
     def lock(self):
         self.guard.acquire()
-        # send request
-        # wait for replies (sem)
-        # logger.debug('requesting lock')
         self.reply_counter = 0
         self.requesting = True
         self.req_timestamp = self.conn.request(self.id)
@@ -35,7 +32,6 @@ class DistMutex:
 
     def unlock(self, sync_obj: Optional[Any] = None):
         self.guard.acquire()
-        # reply for first queued request
         logger.debug('releasing lock')
         self.lock_event.clear()
         while True:
