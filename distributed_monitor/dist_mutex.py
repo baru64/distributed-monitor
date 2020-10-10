@@ -1,0 +1,46 @@
+import logging
+from threading import Event, Lock
+from collections import deque
+
+logger = logging.getLogger(__name__)
+
+
+class DistMutex:
+
+    def __init__(self, conn, id: str):
+        self.id = id
+        self.conn = conn
+        self.conn.register(self)
+        self.lock_event = Event()
+        self.lock_event.clear()
+        self.reply_counter = 0
+        self.request_queue = deque()
+        self.requesting = False
+        self.req_timestamp: float = 0
+        self.unlock_guard = Lock()
+
+    def lock(self):
+        self.unlock_guard.acquire()
+        # send request
+        # wait for replies (sem)
+        # logger.debug('requesting lock')
+        self.reply_counter = 0
+        self.requesting = True
+        self.req_timestamp = self.conn.request(self.id)
+        self.unlock_guard.release()
+        self.lock_event.wait()
+        self.requesting = False
+        logger.debug('lock acquired')
+
+    def unlock(self):
+        self.unlock_guard.acquire()
+        # reply for first queued request
+        logger.debug('releasing lock')
+        self.lock_event.clear()
+        while True:
+            try:
+                peer = self.request_queue.popleft()
+                self.conn.reply(self.id, peer)
+            except IndexError:
+                break
+        self.unlock_guard.release()
