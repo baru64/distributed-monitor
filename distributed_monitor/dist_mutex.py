@@ -18,23 +18,23 @@ class DistMutex:
         self.request_queue = deque()
         self.requesting = False
         self.req_timestamp: float = 0
-        self.unlock_guard = Lock()
+        self.guard = Lock()
 
     def lock(self):
-        self.unlock_guard.acquire()
+        self.guard.acquire()
         # send request
         # wait for replies (sem)
         # logger.debug('requesting lock')
         self.reply_counter = 0
         self.requesting = True
         self.req_timestamp = self.conn.request(self.id)
-        self.unlock_guard.release()
+        self.guard.release()
         self.lock_event.wait()
         self.requesting = False
         logger.debug('lock acquired')
 
     def unlock(self, sync_obj: Optional[Any] = None):
-        self.unlock_guard.acquire()
+        self.guard.acquire()
         # reply for first queued request
         logger.debug('releasing lock')
         self.lock_event.clear()
@@ -44,4 +44,4 @@ class DistMutex:
                 self.conn.reply(self.id, peer)
             except IndexError:
                 break
-        self.unlock_guard.release()
+        self.guard.release()

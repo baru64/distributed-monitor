@@ -17,6 +17,7 @@ class MessageType(int, Enum):
     Request = 1
     Reply = 2
     Update = 3
+    Notify = 4
 
 
 class Message:
@@ -67,12 +68,26 @@ class ConnectionManager:
         self.mutexes = {}
         self.send_socket = self.context.socket(zmq.PUSH)
         self.recv_socket = self.context.socket(zmq.PULL)
+        self.waiters = {}
 
         self.receiver = threading.Thread(target=self._receive)
         self.receiver.start()
 
     def register(self, mutex: Union[DistMutex, Monitor]):
         self.mutexes[mutex.id] = mutex
+
+    def get_event(self, mutex_id: str) -> threading.Event:
+        self.waiters[mutex_id] = threading.Event()
+        self.waiters[mutex_id].clear()
+        return self.waiters[mutex_id]
+
+    def notifyAll(self, mutex_id):
+        # broadcast notification
+        notification = Message(mutex_id, MessageType.Notify, self.address)
+        for peer in self.peers:
+            self.send_socket.connect(peer)
+            self.send_socket.send_json(Message.to_dict(notification))
+            self.send_socket.disconnect(peer)
 
     def request(self, mutex_id: str) -> float:
         # broacast request
@@ -106,7 +121,7 @@ class ConnectionManager:
             self.send_socket.disconnect(peer)
 
     def _receive(self):
-        # handle requests
+        # handle messages
         logger.info(f'peer {self.id} binds to {self.bind_address}')
         self.recv_socket.bind(self.bind_address)
         while True:
@@ -116,10 +131,12 @@ class ConnectionManager:
                 f'peer {self.id} received: type:{message.msg_type} '
                 f'from:{message.address[-1]} {message.timestamp}'
             )
+            # reply message
             if message.msg_type == MessageType.Reply:
                 self.mutexes[message.mutex_id].reply_counter += 1
-                logger.info(f'peer {self.id} mutex:{message.mutex_id} replies:'
-                            f'{self.mutexes[message.mutex_id].reply_counter}')
+                logger.debug(
+                    f'peer {self.id} mutex:{message.mutex_id} replies:'
+                    f'{self.mutexes[message.mutex_id].reply_counter}')
                 if (self.mutexes[message.mutex_id].reply_counter
                         == len(self.peers)):
                     # allow locking local mutex
@@ -127,9 +144,9 @@ class ConnectionManager:
                         f'peer {self.id} received {len(self.peers)} replies'
                     )
                     self.mutexes[message.mutex_id].lock_event.set()
-
+            # request message
             elif message.msg_type == MessageType.Request:
-                self.mutexes[message.mutex_id].unlock_guard.acquire()
+                self.mutexes[message.mutex_id].guard.acquire()
                 if not self.mutexes[message.mutex_id].requesting and \
                         not self.mutexes[message.mutex_id].lock_event.is_set():
                     # send reply
@@ -151,9 +168,14 @@ class ConnectionManager:
                         f' {message.timestamp}')
                     self.mutexes[message.mutex_id].request_queue \
                         .append(message.address)
-                self.mutexes[message.mutex_id].unlock_guard.release()
-
+                self.mutexes[message.mutex_id].guard.release()
+            # update message
             elif message.msg_type == MessageType.Update:
                 self.mutexes[message.mutex_id].sync_obj = \
                     self.mutexes[message.mutex_id].sync_obj \
                         .from_dict(message.obj)
+            # notification message
+            elif message.msg_type == MessageType.Notify:
+                event = self.waiters.pop(message.mutex_id, None)
+                if event is not None:
+                    event.set()

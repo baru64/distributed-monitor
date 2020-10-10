@@ -22,7 +22,7 @@ class Monitor:
         self.request_queue = deque()
         self.requesting = False
         self.req_timestamp: float = 0
-        self.unlock_guard = Lock()
+        self.guard = Lock()
         self.sync_obj = sync_obj
         if getattr(self.sync_obj, 'to_dict', None) is None:
             raise NotSerializableObject
@@ -37,21 +37,28 @@ class Monitor:
         self.unlock()
         return ret
 
+    def notifyAll(self):
+        self.conn.notifyAll(self.id)
+
+    def wait(self):
+        event = self.conn.get_event(self.id)
+        event.wait()
+
     def lock(self):
-        self.unlock_guard.acquire()
+        self.guard.acquire()
         # send request
         # wait for replies (sem)
         # logger.debug('requesting lock')
         self.reply_counter = 0
         self.requesting = True
         self.req_timestamp = self.conn.request(self.id)
-        self.unlock_guard.release()
+        self.guard.release()
         self.lock_event.wait()
         self.requesting = False
         logger.debug('lock acquired')
 
     def unlock(self):
-        self.unlock_guard.acquire()
+        self.guard.acquire()
         # reply for first queued request
         logger.debug('releasing lock')
         self.lock_event.clear()
@@ -61,4 +68,4 @@ class Monitor:
                 self.conn.reply(self.id, peer)
             except IndexError:
                 break
-        self.unlock_guard.release()
+        self.guard.release()
