@@ -1,12 +1,13 @@
 import logging
 import threading
 from enum import Enum
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Union
 from time import time
 
 import zmq
 
 from .dist_mutex import DistMutex
+from .monitor import Monitor
 
 
 logger = logging.getLogger(__name__)
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 class MessageType(int, Enum):
     Request = 1
     Reply = 2
+    Update = 3
 
 
 class Message:
@@ -23,7 +25,8 @@ class Message:
                  mutex_id: str,
                  msg_type: MessageType,
                  address: str,
-                 timestamp: Optional[float] = None):
+                 timestamp: Optional[float] = None,
+                 obj: Dict = None):
         self.mutex_id = mutex_id
         self.msg_type = msg_type
         self.address = address
@@ -31,6 +34,7 @@ class Message:
             self.timestamp = time()
         else:
             self.timestamp = timestamp
+        self.obj = obj
 
     @staticmethod
     def to_dict(message) -> Dict:
@@ -38,7 +42,8 @@ class Message:
             'mutex_id': message.mutex_id,
             'msg_type': message.msg_type,
             'address': message.address,
-            'timestamp': message.timestamp
+            'timestamp': message.timestamp,
+            'obj': message.obj
         }
 
     @staticmethod
@@ -47,7 +52,8 @@ class Message:
             data['mutex_id'],
             data['msg_type'],
             data['address'],
-            data['timestamp'])
+            data['timestamp'],
+            data['obj'])
 
 
 class ConnectionManager:
@@ -65,7 +71,7 @@ class ConnectionManager:
         self.receiver = threading.Thread(target=self._receive)
         self.receiver.start()
 
-    def register(self, mutex: DistMutex):
+    def register(self, mutex: Union[DistMutex, Monitor]):
         self.mutexes[mutex.id] = mutex
 
     def request(self, mutex_id: str) -> float:
@@ -86,6 +92,18 @@ class ConnectionManager:
         self.send_socket.connect(peer_address)
         self.send_socket.send_json(Message.to_dict(reply))
         self.send_socket.disconnect(peer_address)
+
+    def update(self, mutex_id):
+        # broadcast new state to other peers
+        logger.info(f'peer {self.id} updating obj, mutex_id: {mutex_id}')
+        obj = self.mutexes[mutex_id].sync_obj.to_dict(
+            self.mutexes[mutex_id].sync_obj
+        )
+        update = Message(mutex_id, MessageType.Update, self.address, obj=obj)
+        for peer in self.peers:
+            self.send_socket.connect(peer)
+            self.send_socket.send_json(Message.to_dict(update))
+            self.send_socket.disconnect(peer)
 
     def _receive(self):
         # handle requests
@@ -134,3 +152,8 @@ class ConnectionManager:
                     self.mutexes[message.mutex_id].request_queue \
                         .append(message.address)
                 self.mutexes[message.mutex_id].unlock_guard.release()
+
+            elif message.msg_type == MessageType.Update:
+                self.mutexes[message.mutex_id].sync_obj = \
+                    self.mutexes[message.mutex_id].sync_obj \
+                        .from_dict(message.obj)

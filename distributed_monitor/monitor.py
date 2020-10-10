@@ -6,9 +6,13 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 
-class DistMutex:
+class NotSerializableObject(Exception):
+    pass
 
-    def __init__(self, conn: Any, id: str):
+
+class Monitor:
+
+    def __init__(self, conn: Any, id: str, sync_obj: Any):
         self.id = id
         self.conn = conn
         self.conn.register(self)
@@ -19,6 +23,19 @@ class DistMutex:
         self.requesting = False
         self.req_timestamp: float = 0
         self.unlock_guard = Lock()
+        self.sync_obj = sync_obj
+        if getattr(self.sync_obj, 'to_dict', None) is None:
+            raise NotSerializableObject
+        if getattr(self.sync_obj, 'from_dict', None) is None:
+            raise NotSerializableObject
+
+    def call(self, func: str, *args, **kwargs) -> Any:
+        self.lock()
+        method = getattr(self.sync_obj, func)
+        ret = method(*args, **kwargs)
+        self.conn.update(self.id)
+        self.unlock()
+        return ret
 
     def lock(self):
         self.unlock_guard.acquire()
@@ -33,7 +50,7 @@ class DistMutex:
         self.requesting = False
         logger.debug('lock acquired')
 
-    def unlock(self, sync_obj: Optional[Any] = None):
+    def unlock(self):
         self.unlock_guard.acquire()
         # reply for first queued request
         logger.debug('releasing lock')

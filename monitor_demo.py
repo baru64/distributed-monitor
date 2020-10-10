@@ -1,21 +1,41 @@
 import logging
 import sys
-from typing import List
+from typing import List, Dict
 from multiprocessing import Process
 
 from distributed_monitor.connection_manager import ConnectionManager
-from distributed_monitor.dist_mutex import DistMutex
+from distributed_monitor.monitor import Monitor
+
 
 logger = logging.getLogger(__name__)
 
 
+class SerializableCounter:
+
+    def __init__(self, value: int = 0):
+        self.value = value
+
+    def add(self, n: int):
+        self.value += n
+
+    @staticmethod
+    def to_dict(counter) -> Dict:
+        return {
+            'value': counter.value
+        }
+
+    @staticmethod
+    def from_dict(data: Dict):
+        return SerializableCounter(data['value'])
+
+
 def peer(id: int, others: List, bind_address: str, address: str):
     cm = ConnectionManager(id, others, bind_address, address)
-    dmut = DistMutex(cm, 'test')
+    counter = SerializableCounter()
+    dmonitor = Monitor(cm, 'test', counter)
     for i in range(10):
-        dmut.lock()
-        print(f'---> PEER {id} IN CRITICAL SECTION N:{i}')
-        dmut.unlock()
+        dmonitor.call('add', 1)
+        print(f'---> {dmonitor.sync_obj.value}')
 
 
 if __name__ == '__main__':
