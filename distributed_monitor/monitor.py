@@ -2,6 +2,7 @@ import logging
 from threading import Event, Lock
 from collections import deque
 from typing import Any, Optional
+from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ class Monitor:
         self.req_timestamp: float = 0
         self.guard = Lock()
         self.sync_obj = sync_obj
+        self.is_in_synchronized = False
         if getattr(self.sync_obj, 'to_dict', None) is None:
             raise NotSerializableObject
         if getattr(self.sync_obj, 'from_dict', None) is None:
@@ -41,8 +43,22 @@ class Monitor:
         self.conn.notifyAll(self.id)
 
     def wait(self):
+        if self.is_in_synchronized:
+            self.unlock()
+
         event = self.conn.get_event(self.id)
         event.wait()
+
+        if self.is_in_synchronized:
+            self.lock()
+
+    @contextmanager
+    def get_synchronized(self):
+        self.is_in_synchronized = True
+        self.lock()
+        yield self.sync_obj
+        self.unlock()
+        self.is_in_synchronized = False
 
     def lock(self):
         self.guard.acquire()
