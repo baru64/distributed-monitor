@@ -37,10 +37,15 @@ if __name__ == '__main__':
     p2 = Process(target=peer, args=(2, others2, peer2_recv, peer2_send))
     p3 = Process(target=peer, args=(3, others3, peer3_recv, peer3_send))
 
-    p1.start()
-    p2.start()
-    p3.start()
+    try:
+        p1.start()
+        p2.start()
+        p3.start()
 
-    p1.join()
-    p2.join()
-    p3.join()
+        p1.join()
+        p2.join()
+        p3.join()
+    except KeyboardInterrupt:
+        p1.terminate()
+        p2.terminate()
+        p3.terminate()
