@@ -44,6 +44,7 @@ class Monitor:
 
     def wait(self):
         if self.is_in_synchronized:
+            self.conn.update(self.id)
             self.unlock()
 
         event = self.conn.get_event(self.id)
@@ -57,6 +58,7 @@ class Monitor:
         self.is_in_synchronized = True
         self.lock()
         yield self.sync_obj
+        self.conn.update(self.id)
         self.unlock()
         self.is_in_synchronized = False
 

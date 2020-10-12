@@ -40,7 +40,7 @@ def peer(id: int, others: List, bind_address: str, address: str):
 
 if __name__ == '__main__':
     # set logging
-    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+    logging.basicConfig(stream=sys.stdout, level=logging.INFO)
     logger.info('starting demo')
     # set peers
     peer1_recv = "tcp://*:2001"

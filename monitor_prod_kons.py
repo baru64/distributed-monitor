@@ -59,7 +59,7 @@ def consumer(id: int, others: List, bind_address: str, address: str):
 
 if __name__ == '__main__':
     # set logging
-    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+    logging.basicConfig(stream=sys.stdout, level=logging.INFO)
     logger.info('starting demo')
     # set peers
     peer1_recv = "tcp://*:2001"
@@ -76,10 +76,15 @@ if __name__ == '__main__':
     p2 = Process(target=producer, args=(2, others2, peer2_recv, peer2_send))
     p3 = Process(target=consumer, args=(3, others3, peer3_recv, peer3_send))
 
-    p1.start()
-    p2.start()
-    p3.start()
+    try:
+        p1.start()
+        p2.start()
+        p3.start()
 
-    p1.join()
-    p2.join()
-    p3.join()
+        p1.join()
+        p2.join()
+        p3.join()
+    except KeyboardInterrupt:
+        p1.terminate()
+        p2.terminate()
+        p3.terminate()
